@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
 	"log"
 	"os/exec"
@@ -240,11 +241,65 @@ func memoryLoop(ch chan<- string) {
 	}
 }
 
+func brightnessLoop(ch chan<- string) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Print(err)
+		ch <- "(err)"
+		return
+	}
+	defer watcher.Close()
+
+	if err := watcher.Add("/sys/class/backlight/intel_backlight/brightness"); err != nil {
+		log.Print(err)
+		ch <- "(err)"
+		return
+	}
+
+	update := func() {
+		out, err := exec.Command("xbacklight").Output()
+		if err != nil {
+			log.Print(err)
+			ch <- "(err)"
+			return
+		}
+
+		percentage, err := strconv.ParseFloat(string(bytes.TrimSpace(out)), 64)
+		if err != nil {
+			log.Print(err)
+			ch <- "(err)"
+			return
+		}
+
+		ch <- fmt.Sprintf("brightness %.0f%%", percentage)
+	}
+
+	update()
+
+	for {
+		select {
+		case _, ok := <-watcher.Events:
+			if !ok {
+				ch <- "(err)"
+				return
+			}
+			update()
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				log.Print("watcher errors chan closed")
+			} else {
+				log.Print(err)
+			}
+		}
+	}
+}
+
 func main() {
 	log.Printf("Starting")
 
 	loopFuncs := []func(chan<- string){
 		powerLoop,
+		brightnessLoop,
 		thermalLoop,
 		memoryLoop,
 		timeLoop,
