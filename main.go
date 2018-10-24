@@ -80,8 +80,10 @@ func thermalLoop(ch chan<- string) {
 			continue
 		}
 
-		if tempF >= 95 {
+		if tempF >= 185 {
 			ch <- fmt.Sprintf("\x04%.1f \u00b0F", tempF)
+		} else if tempF >= 176 {
+			ch <- fmt.Sprintf("\x03%.1f \u00b0F", tempF)
 		} else {
 			ch <- fmt.Sprintf("%.1f \u00b0F", tempF)
 		}
