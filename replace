@@ -1,0 +1,4 @@
+#!/bin/sh
+go install
+pkill dwmstatus
+dwmstatus >~/dwmstatus.log 2>&1 &
