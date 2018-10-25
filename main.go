@@ -7,6 +7,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -284,7 +285,7 @@ func brightnessLoop(ch chan<- string) {
 			return
 		}
 
-		ch <- fmt.Sprintf("brightness %.0f%%", percentage)
+		ch <- fmt.Sprintf("\u2600%.0f%%", percentage)
 	}
 
 	update()
@@ -308,7 +309,7 @@ func brightnessLoop(ch chan<- string) {
 }
 
 func networkLoop(ch chan<- string) {
-	cmd := exec.Command("ifstat", "-T")
+	cmd := exec.Command("ifstat", "-T", "0.1/3")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Print(err)
@@ -342,11 +343,48 @@ func networkLoop(ch chan<- string) {
 			continue
 		}
 
-		ch <- fmt.Sprintf("%.1f down/%.1f up", down, up)
+		ch <- fmt.Sprintf("\u25be%.1f \u25b4%.1f", down, up)
+	}
+}
+
+func killOthers() {
+	thisPID := os.Getpid()
+
+	out, err := exec.Command("pgrep", "dwmstatus").Output()
+	if err != nil {
+		log.Printf("pgrep: %s", err)
+		return
+	}
+
+	lines := bytes.Split(out, []byte("\n"))
+
+	for _, line := range lines {
+		pid, err := strconv.Atoi(string(line))
+		if err != nil {
+			log.Printf("Parsing PID %q: %s", line, err)
+			continue
+		}
+
+		if pid == thisPID {
+			continue
+		}
+
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			log.Printf("Finding PID %d: %s", pid, err)
+			continue
+		}
+
+		if err := process.Kill(); err != nil {
+			log.Printf("Killing process %d: %s", pid, err)
+			continue
+		}
 	}
 }
 
 func main() {
+	killOthers()
+
 	log.Printf("Starting")
 
 	loopFuncs := []func(chan<- string){

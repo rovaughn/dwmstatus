@@ -1,5 +1,4 @@
 #!/bin/sh
 set -eux
 go install
-pkill dwmstatus || exit 1
 dwmstatus >~/dwmstatus.log 2>&1 &
