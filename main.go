@@ -182,15 +182,18 @@ func powerLoop(ch chan<- string) {
 		}
 
 		totalMinutes := int(remaining.Seconds() / 60)
-		remainingText := fmt.Sprintf("%dh%02dm", totalMinutes/60, totalMinutes%60)
 
 		switch status {
 		case "Charging":
+			remainingText := fmt.Sprintf("%dh%02dm", totalMinutes/60, totalMinutes%60)
 			ch <- fmt.Sprintf("charging %d%% (%s)", percentage, remainingText)
 		case "Discharging":
 			if percentage <= 20 {
+				remainingText := fmt.Sprintf("%dh%02dm", totalMinutes/60, totalMinutes%60)
 				ch <- fmt.Sprintf("\x04discharging %d%% (%s)", percentage, remainingText)
 			} else {
+				totalMinutes = int(float64(totalMinutes) * float64(percentage-20) / float64(percentage))
+				remainingText := fmt.Sprintf("%dh%02dm", totalMinutes/60, totalMinutes%60)
 				ch <- fmt.Sprintf("discharging %d%% (%s)", percentage, remainingText)
 			}
 		case "Unknown":
@@ -200,13 +203,23 @@ func powerLoop(ch chan<- string) {
 }
 
 func timeLoop(ch chan<- string) {
+	const format = "Mon 2 Jan 2006 3:04 pm -0700 MST"
+
+	ch <- time.Now().Format(format)
+	now := time.Now()
+	start := now.Round(time.Minute)
+	if start.Before(now) {
+		start = start.Add(time.Minute)
+	}
+	time.Sleep(start.Sub(now))
+
 	for now := range eagerTick(time.Minute) {
-		ch <- now.Format("Mon 2 Jan 2006 3:04 pm -0700 MST")
+		ch <- now.Format(format)
 	}
 }
 
 func memoryLoop(ch chan<- string) {
-	var re = regexp.MustCompile(`(.*): +(\d+) kB`)
+	re := regexp.MustCompile(`(.*): +(\d+) kB`)
 	for range eagerTick(time.Second) {
 		data, err := ioutil.ReadFile("/proc/meminfo")
 		if err != nil {
@@ -294,12 +307,52 @@ func brightnessLoop(ch chan<- string) {
 	}
 }
 
+func networkLoop(ch chan<- string) {
+	cmd := exec.Command("ifstat", "-T")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Print(err)
+		ch <- "(err)"
+		return
+	}
+	defer stdout.Close()
+	if err := cmd.Start(); err != nil {
+		log.Print(err)
+		ch <- "(err)"
+		return
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Scan()
+	scanner.Scan()
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		down, err := strconv.ParseFloat(fields[len(fields)-2], 64)
+		if err != nil {
+			log.Print(err)
+			ch <- "(err)"
+			continue
+		}
+
+		up, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err != nil {
+			log.Print(err)
+			ch <- "(err)"
+			continue
+		}
+
+		ch <- fmt.Sprintf("%.1f down/%.1f up", down, up)
+	}
+}
+
 func main() {
 	log.Printf("Starting")
 
 	loopFuncs := []func(chan<- string){
 		powerLoop,
 		brightnessLoop,
+		networkLoop,
 		thermalLoop,
 		memoryLoop,
 		timeLoop,
